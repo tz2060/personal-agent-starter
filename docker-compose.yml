@@ -1,0 +1,18 @@
+services:
+  personal-agent:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST: 0.0.0.0
+      APP_PASSWORD: ${APP_PASSWORD:?Set a strong APP_PASSWORD in .env before using Docker}
+      DATA_DIR: /app/data
+      VAULT_DIR: /app/vault
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - agent_data:/app/data
+      - agent_vault:/app/vault
+volumes:
+  agent_data:
+  agent_vault:

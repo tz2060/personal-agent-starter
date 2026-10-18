@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101827">
+  <meta name="description" content="本地优先的个人知识库、邮件草稿与长期规则 Agent">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+  <title>个人知识 Agent</title>
+</head>
+<body>
+  <div id="login-gate" class="login-gate hidden" aria-modal="true" role="dialog" aria-labelledby="login-title">
+    <form id="login-form" class="login-card">
+      <div class="brand-mark">PA</div>
+      <h1 id="login-title">解锁个人 Agent</h1>
+      <p>输入你在 <code>.env</code> 里设置的 APP_PASSWORD。</p>
+      <label for="login-password">访问密码</label>
+      <input id="login-password" type="password" autocomplete="current-password" required>
+      <button class="button primary full" type="submit">登录</button>
+      <p id="login-error" class="error-text" role="alert"></p>
+    </form>
+  </div>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand-row">
+        <div class="brand-mark">PA</div>
+        <div><strong>个人知识 Agent</strong><small>PERSONAL WORKSPACE</small></div>
+      </div>
+      <nav id="main-nav" class="main-nav" aria-label="主导航">
+        <button class="nav-item active" data-view="home"><span>◫</span> 总览</button>
+        <button class="nav-item" data-view="ask"><span>⌕</span> 知识问答</button>
+        <button class="nav-item" data-view="library"><span>▤</span> 资料库</button>
+        <button class="nav-item" data-view="mail"><span>✉</span> 邮箱工作台</button>
+        <button class="nav-item" data-view="rules"><span>⚑</span> 长期规则</button>
+        <button class="nav-item" data-view="activity"><span>◷</span> 任务与记录</button>
+      </nav>
+      <div class="sidebar-bottom">
+        <div class="local-note"><span class="green-dot"></span><div><b>本地优先存储</b><small>Markdown + SQLite</small></div></div>
+        <p class="muted tiny">关闭浏览器不会停止已配置的后台邮箱同步。</p>
+        <button id="refresh-all" class="button subtle full">↻ 刷新状态</button>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div><div class="eyebrow">PERSONAL KNOWLEDGE & WORKFLOW</div><h1 id="page-title">总览</h1></div>
+        <div class="topbar-right"><span id="runtime-indicator" class="status-pill">正在连接…</span><button id="top-upload" class="button primary">＋ 收集资料</button></div>
+      </header>
+
+      <section id="view-home" class="view active">
+        <div class="welcome-band">
+          <div><div class="eyebrow light">YOUR SECOND BRAIN</div><h2>把资料留下，把流程跑起来。</h2><p>原文可读、来源可追踪、规则能复用；邮件只起草，发送前由你确认。</p></div>
+          <div class="welcome-symbol" aria-hidden="true">✳</div>
+        </div>
+        <div class="stat-grid">
+          <article class="stat-card"><span class="stat-label">资料文档</span><strong id="stat-docs">—</strong><small>Markdown 可直接修改</small></article>
+          <article class="stat-card"><span class="stat-label">长期规则</span><strong id="stat-rules">—</strong><small>后续问答与草稿会读取</small></article>
+          <article class="stat-card"><span class="stat-label">邮件记录</span><strong id="stat-emails">—</strong><small>按邮件线程关联历史</small></article>
+          <article class="stat-card"><span class="stat-label">待审草稿</span><strong id="stat-drafts">—</strong><small>不会自动发送</small></article>
+        </div>
+        <div class="two-col">
+          <section class="panel"><div class="panel-heading"><div><h3>运行状态</h3><p>只显示是否配置，不展示密钥。</p></div><span class="panel-icon">⌘</span></div><div id="integration-status" class="integration-list"><div class="skeleton"></div></div></section>
+          <section class="panel"><div class="panel-heading"><div><h3>推荐工作流</h3><p>先把资料与规则建立起来。</p></div><span class="panel-icon">↗</span></div>
+            <button class="workflow-row" data-go="library"><span class="workflow-num">01</span><span><b>收集文章或笔记</b><small>上传文件或直接粘贴文本</small></span><span class="chevron">→</span></button>
+            <button class="workflow-row" data-go="ask"><span class="workflow-num">02</span><span><b>带着来源提问</b><small>回答附带可打开的资料引用</small></span><span class="chevron">→</span></button>
+            <button class="workflow-row" data-go="mail"><span class="workflow-num">03</span><span><b>审核邮件草稿</b><small>编辑最终版本后再明确发送</small></span><span class="chevron">→</span></button>
+          </section>
+        </div>
+        <section class="panel notice-panel"><div class="notice-icon">i</div><div><b>第一次使用需要完成的配置</b><p id="setup-notice">如果未配置模型，资料入库和关键词检索仍可使用；如果未配置 IMAP/SMTP，邮箱工作台会显示未连接。你可以稍后再填入 .env。</p></div></section>
+      </section>
+
+      <section id="view-ask" class="view">
+        <div class="section-intro"><div><h2>从自己的资料中找答案</h2><p>回答应当区分事实和推论，并给出资料标题与原文定位。模型未配置时只返回检索结果，不编造综合答案。</p></div></div>
+        <form id="ask-form" class="ask-box"><div class="ask-mark">⌕</div><textarea id="ask-question" rows="2" placeholder="例如：我以前记过哪些关于信念与预测模型的观点？" required></textarea><button class="button primary" type="submit">检索并回答 <span>→</span></button></form>
+        <div id="ask-status" class="inline-status"></div><div id="ask-result" class="result-stack"></div>
+      </section>
+
+      <section id="view-library" class="view">
+        <div class="section-intro"><div><h2>个人资料库</h2><p>文件原文保存在 vault/knowledge；修改 Markdown 后，索引会自动更新。</p></div><button id="reindex-btn" class="button subtle">↻ 重建索引</button></div>
+        <div class="library-grid">
+          <section class="panel"><div class="panel-heading"><div><h3>收集新资料</h3><p>文字或常见文件都可以入库。</p></div></div>
+            <div class="subtabs"><button class="subtab active" data-intake="text">粘贴文本</button><button class="subtab" data-intake="file">上传文件</button></div>
+            <form id="text-ingest-form" class="form-stack">
+              <label>资料标题<input id="source-title" maxlength="180" placeholder="例如：信念的神经基础" required></label>
+              <label>原文 / 笔记<textarea id="source-content" rows="9" placeholder="粘贴文章、AI 答案、学习笔记或转录文本…" required></textarea></label>
+              <label>来源链接（可选）<input id="source-uri" maxlength="2000" placeholder="https://… 或书名、对话日期"></label>
+              <button class="button primary" type="submit">写入资料库 <span>→</span></button>
+            </form>
+            <form id="file-ingest-form" class="form-stack hidden">
+              <label class="drop-zone" for="source-file"><span class="drop-icon">↑</span><b>选择一个文件</b><small>PDF、TXT、Markdown、HTML、CSV、JSON 或图片</small><input id="source-file" type="file" required></label>
+              <label>来源备注（可选）<input id="file-source-uri" maxlength="2000" placeholder="文件来源或链接"></label>
+              <button class="button primary" type="submit">上传并整理 <span>→</span></button>
+              <p class="muted tiny">PDF 可提取文字；扫描件 / 图片的自动识别需要配置支持视觉输入的模型。</p>
+            </form>
+            <div id="ingest-feedback" class="feedback hidden"></div>
+          </section>
+          <section class="panel"><div class="panel-heading"><div><h3>检索资料</h3><p>搜索结果可以打开原文或继续编辑。</p></div><span class="panel-icon">⌕</span></div>
+            <form id="library-search-form" class="search-row"><input id="library-query" placeholder="输入关键词、主题或原文片段" required><button class="button dark" type="submit">搜索</button></form>
+            <div id="library-results" class="result-stack compact"><div class="empty-state">输入关键词开始检索，或查看最近资料。</div></div>
+          </section>
+        </div>
+        <section class="panel table-panel"><div class="panel-heading"><div><h3>最近更新</h3><p>文件路径可在项目的 vault/knowledge 中查看。</p></div><button id="load-docs" class="button subtle small">刷新列表</button></div><div id="documents-list" class="document-list"></div></section>
+      </section>
+
+      <section id="view-mail" class="view">
+        <div class="section-intro"><div><h2>邮箱工作台</h2><p>后台只抓取新邮件并拟稿。你可以编辑草稿；只有点击并确认当前最终版本，程序才尝试发送。</p></div><button id="mail-sync-btn" class="button primary">↻ 立即同步邮箱</button></div>
+        <div id="mail-notice" class="notice-panel compact-notice"><div class="notice-icon">i</div><div><b>邮箱尚未连接</b><p>在项目根目录的 .env 填写 IMAP 配置后，后台服务会定期同步。SMTP 仅用于你明确确认后的发送。</p></div></div>
+        <div class="mail-grid">
+          <section class="panel"><div class="panel-heading"><div><h3>邮件往来</h3><p>点击查看邮件正文与同线程历史。</p></div><span id="mail-count" class="count-pill">0</span></div><div id="emails-list" class="mail-list"></div></section>
+          <section class="panel"><div class="panel-heading"><div><h3>回复草稿</h3><p>未完成审核的草稿会留在这里。</p></div><span id="draft-count" class="count-pill">0</span></div><div id="drafts-list" class="mail-list"></div></section>
+        </div>
+        <section id="email-detail-panel" class="panel hidden"><div class="panel-heading"><div><h3 id="email-detail-title">邮件详情</h3><p id="email-detail-meta"></p></div><button id="close-email-detail" class="button subtle small">关闭</button></div><div id="email-thread" class="thread-stack"></div></section>
+        <section id="draft-editor-panel" class="panel hidden"><div class="panel-heading"><div><h3>编辑并审核最终版本</h3><p id="draft-editor-meta">请核对收件人、主题与全文。</p></div><span id="draft-status" class="status-pill">DRAFT</span></div>
+          <form id="draft-form" class="form-stack">
+            <input id="draft-id" type="hidden">
+            <label>收件人<input id="draft-recipient" type="email" required></label>
+            <label>主题<input id="draft-subject" maxlength="1000" required></label>
+            <label>正文<textarea id="draft-body" rows="10" required></textarea></label>
+            <div id="draft-original" class="original-email"></div>
+            <div class="draft-actions"><button id="save-draft-btn" class="button dark" type="button">保存修改</button><button id="send-draft-btn" class="button primary" type="button">✓ 确认并发送此版本</button></div>
+            <p id="draft-send-note" class="muted tiny">确认窗口会再次展示收件人、主题和正文。发送状态不确定时不会自动重试，避免重复发送。</p>
+            <div id="uncertain-actions" class="notice-panel compact-notice hidden"><div class="notice-icon">!</div><div><b>发送结果不确定</b><p>先在邮箱“已发送”文件夹按收件人、主题、时间或 Message-ID 核对。不要在未核对前重发。</p><div class="draft-actions" style="margin-top:12px"><button id="resolve-sent-btn" class="button subtle" type="button">已核对：确实发出</button><button id="resolve-not-sent-btn" class="button dark" type="button">已核对：没有发出</button></div></div></div>
+          </form>
+        </section>
+        <div id="mail-feedback" class="inline-status"></div>
+      </section>
+
+      <section id="view-rules" class="view">
+        <div class="section-intro"><div><h2>把纠正保存为长期规则</h2><p>规则以 Markdown 文件形式保存在 vault/rules，并注入知识问答与邮件拟稿上下文。Git 可追踪这些规则的变化。</p></div></div>
+        <div class="library-grid">
+          <section class="panel"><div class="panel-heading"><div><h3>新增规则</h3><p>写成明确、可复用的行为约束。</p></div></div>
+            <form id="rule-form" class="form-stack"><label>规则标题<input id="rule-title" placeholder="例如：日期字段必须区分事件与截止时间" required maxlength="180"></label><label>规则内容<textarea id="rule-body" rows="7" required placeholder="例如：整理通知时，必须分别记录报名截止時間、活動開始時間；不能把兩者混用。若未找到活動開始時間，標記為未提供，不要猜測。"></textarea></label><button class="button primary" type="submit">保存为长期规则</button></form><div id="rule-feedback" class="feedback hidden"></div>
+          </section>
+          <section class="panel"><div class="panel-heading"><div><h3>规则如何生效</h3><p>建议把纠正写成可验证的规则。</p></div></div>
+            <div class="rule-example"><div class="rule-example-label">纠正</div><p>不要把报名截止时间当成活动开始时间。</p><div class="rule-example-label good">持久规则</div><p>识别通知中的日期时，必须区分报名截止、活动开始和其他时间；缺少活动开始时间时标记为“未提供”，禁止推断。</p></div>
+            <div class="notice-panel compact-notice"><div class="notice-icon">i</div><div><b>规则不是自动写入模型权重</b><p>它以外部文件与每次任务上下文的方式读取。为避免冲突，关键规则也会作为固定任务约束注入。</p></div></div>
+          </section>
+        </div>
+        <section class="panel"><div class="panel-heading"><div><h3>已保存规则</h3><p>规则可直接在 Markdown 文件中阅读和修改。</p></div></div><div id="rules-list" class="document-list"></div></section>
+      </section>
+
+      <section id="view-activity" class="view">
+        <div class="section-intro"><div><h2>任务与操作记录</h2><p>查看后台邮箱同步、索引刷新和重要操作。这里只展示近期状态，不代表任务在浏览器关闭后依赖页面运行。</p></div><button id="refresh-activity" class="button subtle">刷新记录</button></div>
+        <section class="panel"><div class="panel-heading"><div><h3>后台任务</h3><p>最近 50 条任务记录。</p></div></div><div id="tasks-list" class="document-list"></div></section>
+        <section class="panel"><div class="panel-heading"><div><h3>操作日志</h3><p>包含入库、编辑、规则更新与邮件发送状态。</p></div></div><div id="operations-list" class="document-list"></div></section>
+      </section>
+
+      <footer class="app-footer"><span>PERSONAL AGENT · LOCAL-FIRST</span><span>原文是资产，索引可重建，发送需确认。</span></footer>
+    </main>
+  </div>
+
+  <div id="toast-root" class="toast-root" aria-live="polite"></div>
+  <script src="/static/app.js" defer></script>
+</body>
+</html>

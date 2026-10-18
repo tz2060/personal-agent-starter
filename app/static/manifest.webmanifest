@@ -1,0 +1,10 @@
+{
+  "name": "个人知识 Agent",
+  "short_name": "知识 Agent",
+  "description": "本地优先的个人知识库、邮件草稿与长期规则",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0b111d",
+  "theme_color": "#101827",
+  "icons": [{"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}]
+}
