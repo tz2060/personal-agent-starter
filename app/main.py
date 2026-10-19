@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .config import APP_PASSWORD, APP_TITLE, HOST, IMAP_POLL_SECONDS, MAX_UPLOAD_MB, VAULT_SYNC_SECONDS, prepare_dirs
+from .config import APP_PASSWORD, APP_TITLE, HOST, IMAP_POLL_SECONDS, MAX_UPLOAD_MB, PORT, VAULT_SYNC_SECONDS, prepare_dirs
 from .db import connect, init_db, log_operation, now_iso, upsert_task
 from .knowledge import (
     get_document,
@@ -28,6 +28,7 @@ from .knowledge import (
     sync_vault_index,
     update_document_markdown,
 )
+from .netinfo import lan_address
 from .mail_service import (
     list_drafts,
     list_emails,
@@ -126,11 +127,47 @@ async def _vault_worker() -> None:
         await asyncio.sleep(VAULT_SYNC_SECONDS)
 
 
+class _DropWildcardBindLog(logging.Filter):
+    """丢掉 uvicorn 那句 "Uvicorn running on http://0.0.0.0:8000"。
+
+    那是监听地址而非可访问地址，浏览器打不开，容易误导。真正的访问地址由
+    _announce_addresses() 打印。
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            return "Uvicorn running on" not in record.getMessage()
+        except Exception:
+            return True
+
+
+def _announce_addresses() -> None:
+    """在终端打印可以直接点开的地址，替代 uvicorn 的绑定地址提示。"""
+    logger.info("-" * 58)
+    logger.info("在浏览器打开这个地址： http://127.0.0.1:%d", PORT)
+    if HOST not in {"127.0.0.1", "::1"}:
+        lan = lan_address()
+        if lan:
+            logger.info("手机 / 其他设备访问： http://%s:%d", lan, PORT)
+    logger.info("停止服务：在这个终端窗口按 Ctrl+C")
+    logger.info("-" * 58)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     prepare_dirs()
     if HOST in {"0.0.0.0", "::", ""} and not APP_PASSWORD:
-        raise RuntimeError("拒绝在所有网卡上开放无密码服务。请在 .env 中设置强 APP_PASSWORD，或将 HOST 改为 127.0.0.1。")
+        # 用户明确选择在局域网内免密码运行，因此不再拒绝启动，但必须在日志里反复提示。
+        logger.warning(
+            "SECURITY: 正在所有网卡上以无密码方式运行（HOST=%s）。同一网络内的任何设备都可以读取资料库、"
+            "查看邮件并起草回信。请仅在可信网络中使用，切勿直接暴露到公网。", HOST
+        )
+    _announce_addresses()
+    # uvicorn 的绑定地址提示在 lifespan 返回之后才输出，此处装过滤器正好能拦到。
+    try:
+        logging.getLogger("uvicorn.error").addFilter(_DropWildcardBindLog())
+    except Exception:
+        logger.debug("无法过滤 uvicorn 的启动地址提示，不影响运行", exc_info=True)
     init_db()
     uncertain = mark_send_uncertain_on_startup()
     if uncertain:
@@ -208,7 +245,9 @@ async def dashboard() -> dict[str, Any]:
             "drafts": draft_count, "send_uncertain": uncertain_count,
             "last_mail_sync": dict(last_sync) if last_sync else None,
             "llm_configured": model_configured(), "imap_configured": mailbox_configured(),
-            "smtp_configured": smtp_configured()}
+            "smtp_configured": smtp_configured(),
+            # 局域网地址属于本机信息，只出现在需鉴权的接口，不放公开的 /api/health。
+            "lan_address": lan_address(), "port": PORT}
 
 
 @api.post("/documents/text")

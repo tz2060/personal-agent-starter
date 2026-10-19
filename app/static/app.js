@@ -84,6 +84,15 @@
   function renderReadyTag(isReady, readyText = '已配置', missingText = '未配置') {
     return `<span class="tag ${isReady ? 'good' : 'warn'}">${isReady ? readyText : missingText}</span>`;
   }
+  function renderNetwork(data) {
+    const node = $('#network-addresses');
+    if (!node) return;
+    const address = String(data.lan_address || '');
+    const port = location.port || data.port || 8000;
+    node.innerHTML = address
+      ? `<div class="network-title">手机 / 其他设备访问地址</div><div class="network-row"><b>http://${esc(address)}:${esc(port)}</b></div>`
+      : '';
+  }
   async function loadDashboard() {
     try {
       const data = await request('/api/dashboard');
@@ -97,6 +106,7 @@
         ['IMAP 邮箱读取', data.imap_configured, '后台同步已启用', '未连接', data.imap_configured ? '新邮件会由独立后台定期检查' : '在 .env 中填写 IMAP_HOST / IMAP_USER / IMAP_PASSWORD'],
         ['SMTP 邮件发送', data.smtp_configured, '确认后可发送', '未连接', data.smtp_configured ? '只有人工确认的当前版本才会发送' : '在 .env 中填写 SMTP_HOST / SMTP_USER / SMTP_PASSWORD / MAIL_FROM'],
       ].map(([name, ready, yes, no, detail]) => `<div class="integration-row"><div><b>${esc(name)}</b><small>${esc(detail)}</small></div>${renderReadyTag(ready, yes, no)}</div>`).join('');
+      renderNetwork(data);
       const statuses = [data.llm_configured, data.imap_configured, data.smtp_configured];
       $('#runtime-indicator').textContent = statuses.every(Boolean) ? '服务就绪' : '基础模式';
       $('#runtime-indicator').className = 'status-pill ' + (statuses.every(Boolean) ? 'ready' : 'warn');

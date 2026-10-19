@@ -25,7 +25,9 @@ for /f "tokens=1,* delims==" %%A in ('findstr /b "HOST=" .env') do set HOST_VALU
 for /f "tokens=1,* delims==" %%A in ('findstr /b "PORT=" .env') do set PORT_VALUE=%%B
 if "%HOST_VALUE%"=="" set HOST_VALUE=127.0.0.1
 if "%PORT_VALUE%"=="" set PORT_VALUE=8000
-echo [3/3] Starting Personal Knowledge Agent at http://%HOST_VALUE%:%PORT_VALUE%
+rem HOST is a bind address, not a browsable URL. The app prints usable addresses on startup.
+echo [3/3] Starting Personal Knowledge Agent...
+echo.
 ".venv\Scripts\python.exe" -m uvicorn app.main:app --host "%HOST_VALUE%" --port "%PORT_VALUE%"
 if errorlevel 1 goto :fail
 goto :eof
