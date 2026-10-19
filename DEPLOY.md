@@ -109,7 +109,30 @@ git push
 
 拉取到另一台机器后只需重启服务；数据库和 vault 不随代码同步。
 
-## 七、安全红线
+## 七、把单篇资料发布到 GitHub
+
+资料库页面每篇资料右侧有「发布」按钮，把这**一个** Markdown 文件推到 GitHub 仓库的指定目录。
+
+在 `.env` 配置：
+
+```dotenv
+GITHUB_TOKEN=github_pat_xxxxxxxx
+GITHUB_REPO=owner/repo
+GITHUB_BRANCH=main
+GITHUB_NOTES_DIR=notes
+```
+
+- `GITHUB_TOKEN`：Fine-grained token，对目标仓库授予 **Contents: Read and write** 即可，不必给全仓库权限。
+- `GITHUB_REPO`：`owner/repo` 格式。
+- 文件写到 `{GITHUB_NOTES_DIR}/{原文件名}.md`，例如 `notes/basal-ganglia--876d8c.md`。
+- 同一篇再次发布会覆盖原文件并生成新提交（自动带 `sha`），不会产生重复文件。
+- `GITHUB_TOKEN` 或 `GITHUB_REPO` 留空时，按钮不显示。
+
+实现走 **GitHub Contents API** 而不是 git 命令，原因有两个：服务进程里拿不到本机 git 凭据助手（GCM 会弹窗等交互）；而且 `vault/knowledge/` 在 `.gitignore` 里，走 git 需要 `-f` 强制添加，容易连带提交整批私人文件。单篇、显式、可回退，更安全。
+
+> **⚠️ 公开仓库 = 公开发布。** 若 `GITHUB_REPO` 指向公开仓库，笔记内容对所有人可见。私人资料请另建一个 **private** 仓库，并让 token 只授权那一个仓库。
+
+## 八、安全红线
 
 - `.env` 含 LLM 密钥、IMAP/SMTP 授权码、访问密码，**永远不要提交**。
 - **当前实例以无密码方式在局域网运行**，同网段任何设备均可读取资料与邮件。不要在不可信网络（公共 Wi-Fi、访客网络）中启动。

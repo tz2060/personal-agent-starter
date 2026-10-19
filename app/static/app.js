@@ -3,7 +3,7 @@
 
   const $ = (selector, root = document) => root.querySelector(selector);
   const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
-  const state = {health: null, currentDraft: null, currentDocument: null, activeView: 'home'};
+  const state = {health: null, currentDraft: null, currentDocument: null, activeView: 'home', githubConfigured: false};
   let token = sessionStorage.getItem('personal-agent-token') || '';
 
   function esc(value) {
@@ -119,12 +119,38 @@
     } catch (err) { toast(err.message, 'error'); }
   }
 
+  function publishButton(row) {
+    return state.githubConfigured ? `<button class="text-link" data-publish-doc="${esc(row.doc_id)}">发布到 GitHub ↑</button>` : '';
+  }
+  async function publishDocument(docId, btn) {
+    const original = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '发布中…'; }
+    try {
+      const result = await request(`/api/documents/${encodeURIComponent(docId)}/publish`, {method: 'POST'});
+      toast(result.message || '已发布');
+      if (btn && result.url) {
+        const link = document.createElement('a');
+        link.className = 'text-link';
+        link.href = result.url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = '已发布 ↗';
+        btn.replaceWith(link);
+        return;
+      }
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      if (btn && btn.isConnected) { btn.disabled = false; btn.textContent = original; }
+    }
+  }
   function docCard(row, compact = false) {
     const summary = row.summary || row.snippet || row.content || '';
-    return `<article class="result-card"><h4>${esc(row.title || '未命名资料')}</h4><p>${esc(summary).slice(0, 1100)}</p><div class="result-meta"><span>${esc(row.source_type || 'note')} · ${esc(row.file_path || '')}</span><button class="text-link" data-open-doc="${esc(row.doc_id)}">打开原文 ↗</button></div>${row.snippet ? `<p class="muted" style="margin-top:10px">命中片段：${esc(row.snippet)}</p>` : ''}</article>`;
+    return `<article class="result-card"><h4>${esc(row.title || '未命名资料')}</h4><p>${esc(summary).slice(0, 1100)}</p><div class="result-meta"><span>${esc(row.source_type || 'note')} · ${esc(row.file_path || '')}</span><button class="text-link" data-open-doc="${esc(row.doc_id)}">打开原文 ↗</button>${publishButton(row)}</div>${row.snippet ? `<p class="muted" style="margin-top:10px">命中片段：${esc(row.snippet)}</p>` : ''}</article>`;
   }
   function bindDocButtons(root = document) {
     $$('[data-open-doc]', root).forEach(btn => btn.addEventListener('click', () => openDocument(btn.dataset.openDoc)));
+    $$('[data-publish-doc]', root).forEach(btn => btn.addEventListener('click', () => publishDocument(btn.dataset.publishDoc, btn)));
   }
   async function askQuestion(question) {
     setStatus($('#ask-status'), '正在检索你的 Markdown 资料…');
@@ -132,9 +158,16 @@
     try {
       const result = await request('/api/ask', {method:'POST', body:JSON.stringify({question})});
       const invalidNotice = result.invalid_citations?.length ? `<p class="muted">模型产生了未能验证的来源 ID：${esc(result.invalid_citations.join(', '))}。请仅采用下方真实来源链接。</p>` : '';
-      $('#ask-result').innerHTML = `<article class="answer-card"><h3>${result.model_used ? '知识库回答' : '检索说明'}</h3><div class="answer-body">${esc(result.answer)}</div>${invalidNotice}<div class="result-meta"><span>${result.model_used ? '已调用模型' : '未调用模型'} · 检索到 ${result.citations.length} 个来源</span></div></article><div class="citation-title">检索来源 / 可回到原文的引用</div>${result.citations.map(docCard).join('')}`;
+      const general = result.source_mode === 'general';
+      const heading = general ? '通用知识回答' : (result.model_used ? '知识库回答' : '检索说明');
+      const generalNotice = general ? '<p class="muted tiny">资料库中没有匹配内容，以下回答来自模型的通用知识，未经你的资料佐证。</p>' : '';
+      const citationTitle = result.citations.length ? '<div class="citation-title">检索来源 / 可回到原文的引用</div>' : '';
+      const metaText = `${result.model_used ? '已调用模型' : '未调用模型'} · ${general ? '资料库无匹配内容' : `检索到 ${result.citations.length} 个来源`}`;
+      $('#ask-result').innerHTML = `<article class="answer-card"><h3>${heading}</h3><div class="answer-body">${esc(result.answer)}</div>${generalNotice}${invalidNotice}<div class="result-meta"><span>${metaText}</span></div></article>${citationTitle}${result.citations.map(docCard).join('')}`;
       bindDocButtons($('#ask-result'));
-      setStatus($('#ask-status'), '完成。来源引用来自本地知识库检索；打开资料可以查看和编辑完整 Markdown。');
+      setStatus($('#ask-status'), general
+        ? '资料库中没有相关内容，已改用模型通用知识回答。导入相关资料后可以得到带引用的回答。'
+        : '完成。来源引用来自本地知识库检索；打开资料可以查看和编辑完整 Markdown。');
     } catch (err) { setStatus($('#ask-status'), err.message); toast(err.message, 'error'); }
   }
 
@@ -142,9 +175,13 @@
     const list = $('#documents-list');
     list.innerHTML = '<div class="skeleton"></div>';
     try {
-      const docs = await request('/api/documents?limit=80');
+      const [docs, dashboard] = await Promise.all([
+        request('/api/documents?limit=80'),
+        request('/api/dashboard').catch(() => null),
+      ]);
+      state.githubConfigured = Boolean(dashboard && dashboard.github_configured);
       if (!docs.length) { list.innerHTML = '<div class="empty-state">资料库目前为空。先上传一篇文章或粘贴一段笔记。</div>'; return; }
-      list.innerHTML = docs.map(row => `<div class="document-row"><div class="doc-file-icon">${row.source_type === 'rule' ? '⚑' : 'MD'}</div><div class="document-row-main"><b>${esc(row.title)}</b><p>${esc((row.summary || '').slice(0, 220))}</p><small>${esc(row.file_path)} · 更新于 ${esc(row.updated_at || '')}</small></div><button class="button subtle small row-action" data-open-doc="${esc(row.doc_id)}">打开</button></div>`).join('');
+      list.innerHTML = docs.map(row => `<div class="document-row"><div class="doc-file-icon">${row.source_type === 'rule' ? '⚑' : 'MD'}</div><div class="document-row-main"><b>${esc(row.title)}</b><p>${esc((row.summary || '').slice(0, 220))}</p><small>${esc(row.file_path)} · 更新于 ${esc(row.updated_at || '')}</small></div><button class="button subtle small row-action" data-open-doc="${esc(row.doc_id)}">打开</button>${state.githubConfigured ? `<button class="button subtle small row-action" data-publish-doc="${esc(row.doc_id)}">发布</button>` : ''}</div>`).join('');
       bindDocButtons(list);
     } catch (err) { list.innerHTML = `<div class="empty-state">${esc(err.message)}</div>`; }
   }
@@ -381,7 +418,16 @@
       if (!canContinue) return;
       hideLogin();
       await loadAll();
-      if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+      if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+        // 新版 Service Worker 接管后自动刷新一次，避免改完前端仍停留在旧缓存的页面。
+        let reloading = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (reloading) return;
+          reloading = true;
+          location.reload();
+        });
+        navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+      }
     } catch (err) {
       $('#runtime-indicator').textContent = '后台未连接';
       $('#runtime-indicator').className = 'status-pill warn';

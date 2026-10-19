@@ -29,6 +29,7 @@ from .knowledge import (
     update_document_markdown,
 )
 from .netinfo import lan_address
+from .github_publish import PublishError, configured as github_configured, publish_markdown
 from .mail_service import (
     list_drafts,
     list_emails,
@@ -247,7 +248,8 @@ async def dashboard() -> dict[str, Any]:
             "llm_configured": model_configured(), "imap_configured": mailbox_configured(),
             "smtp_configured": smtp_configured(),
             # 局域网地址属于本机信息，只出现在需鉴权的接口，不放公开的 /api/health。
-            "lan_address": lan_address(), "port": PORT}
+            "lan_address": lan_address(), "port": PORT,
+            "github_configured": github_configured()}
 
 
 @api.post("/documents/text")
@@ -303,6 +305,31 @@ async def edit_document(doc_id: str, payload: MarkdownUpdate) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@api.post("/documents/{doc_id}/publish")
+async def publish_document(doc_id: str) -> dict[str, Any]:
+    """把单篇资料推送到 GitHub 仓库的 GITHUB_NOTES_DIR 目录下。"""
+    item = get_document(doc_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="资料不存在")
+    markdown = item.get("markdown") or ""
+    if not markdown.strip():
+        raise HTTPException(status_code=400, detail="这篇资料没有可发布的 Markdown 内容")
+    if not github_configured():
+        raise HTTPException(status_code=503,
+                            detail="未配置 GitHub：请在 .env 填写 GITHUB_TOKEN 与 GITHUB_REPO（owner/repo）后重启服务")
+    filename = Path(item["file_path"]).name
+    try:
+        result = await asyncio.to_thread(
+            publish_markdown, filename, markdown, f"Publish note: {item.get('title') or filename}"
+        )
+    except PublishError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    log_operation("document_published", "document", doc_id,
+                  {"repo": result.get("repo"), "path": result.get("path")})
+    return {**result, "doc_id": doc_id,
+            "message": "已更新 GitHub 上的版本。" if result.get("updated") else "已发布到 GitHub。"}
+
+
 @api.get("/search")
 async def search(q: str, limit: int = 8) -> list[dict[str, Any]]:
     await asyncio.to_thread(sync_vault_index)
@@ -316,19 +343,39 @@ async def ask(payload: AskRequest) -> dict[str, Any]:
     await asyncio.to_thread(sync_vault_index)
     docs = await asyncio.to_thread(search_docs, payload.question, 8)
     rules = list_rules(limit=50)
-    if not docs:
-        return {"answer": "知识库中没有检索到明显相关的资料。请先导入资料，或尝试更具体的关键词。",
-                "citations": [], "model_used": False}
     citations = [{"doc_id": row["doc_id"], "title": row["title"], "file_path": row["file_path"],
                   "source_uri": row["source_uri"], "snippet": row.get("snippet", ""), "summary": row.get("summary", "")}
                  for row in docs]
+    rule_text = "\n".join(f"- {r['title']}：{r['content'][:1600]}" for r in rules)[:12000]
+
     if not model_configured():
+        if not docs:
+            return {"answer": "资料库中没有检索到相关内容，且尚未配置模型接口，因此无法回答。请先导入资料，或在 .env 中配置 LLM_API_KEY 与 LLM_MODEL。",
+                    "citations": [], "model_used": False, "source_mode": "none"}
         return {"answer": "已检索到以下相关资料，但尚未配置模型接口，因此不会把检索结果冒充为综合回答。请查看下方来源，或在 .env 中配置 LLM_API_KEY 与 LLM_MODEL 后再提问。",
-                "citations": citations, "model_used": False}
+                "citations": citations, "model_used": False, "source_mode": "knowledge_base"}
+
+    if not docs:
+        # 资料库无相关内容时允许模型用自身知识兜底，但必须如实标注来源，不能伪装成资料库回答。
+        try:
+            answer_text = await asyncio.to_thread(chat, [
+                {"role": "system", "content": (
+                    "用户的个人知识库中没有检索到与这个问题相关的资料。请基于你自己的通用知识回答，"
+                    "但必须在回答的第一句明确说明：本次回答来自模型的通用知识，不是来自用户的资料库。"
+                    "区分确定的事实与不确定的内容，不确定就直接说不确定，不要编造。"
+                    "遵守用户持久规则。不要虚构引用、页码、链接或来源。使用中文回答。"
+                )},
+                {"role": "user", "content": f"问题：{payload.question}\n\n持久规则：\n{rule_text or '（暂无）'}"},
+            ], max_tokens=1800)
+            return {"answer": answer_text, "citations": [], "model_used": True,
+                    "source_mode": "general", "invalid_citations": []}
+        except Exception as exc:
+            logger.exception("General-knowledge answer failed")
+            raise HTTPException(status_code=502, detail=f"模型回答失败：{type(exc).__name__}: {str(exc)[:300]}") from exc
+
     source_blocks = []
     for idx, row in enumerate(docs, start=1):
         source_blocks.append(f"[S{idx} | doc_id={row['doc_id']} | 标题={row['title']} | 路径={row['file_path']}]\n{row['content'][:5000]}")
-    rule_text = "\n".join(f"- {r['title']}：{r['content'][:1600]}" for r in rules)[:12000]
     try:
         answer_text = await asyncio.to_thread(chat, [
             {"role": "system", "content": (
@@ -342,7 +389,7 @@ async def ask(payload: AskRequest) -> dict[str, Any]:
         ], max_tokens=1800)
         allowed_ids = {row["doc_id"] for row in docs}
         # The UI links to actual retrieved sources regardless; flag unknown citation IDs if the model invents one.
-        return {"answer": answer_text, "citations": citations, "model_used": True,
+        return {"answer": answer_text, "citations": citations, "model_used": True, "source_mode": "knowledge_base",
                 "invalid_citations": [cid for cid in __import__("re").findall(r"\[(doc-[A-Za-z0-9-]+|rule-[A-Za-z0-9-]+)\]", answer_text) if cid not in allowed_ids]}
     except Exception as exc:
         logger.exception("Knowledge Q&A failed")

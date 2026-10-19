@@ -47,6 +47,12 @@ SMTP_USE_SSL = os.getenv("SMTP_USE_SSL", "true").lower() in {"1", "true", "yes",
 SMTP_STARTTLS = os.getenv("SMTP_STARTTLS", "false").lower() in {"1", "true", "yes", "on"}
 MAIL_FROM = os.getenv("MAIL_FROM", "").strip()
 
+# 可选：把单篇资料发布到 GitHub 仓库。留空则该功能在界面上不可用。
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "").strip()
+GITHUB_REPO = os.getenv("GITHUB_REPO", "").strip()
+GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "main").strip() or "main"
+GITHUB_NOTES_DIR = os.getenv("GITHUB_NOTES_DIR", "notes").strip().strip("/") or "notes"
+
 
 def prepare_dirs() -> None:
     for path in (DATA_DIR, KNOWLEDGE_DIR, RULES_DIR, ATTACHMENTS_DIR, INBOX_DIR, VAULT_DIR / "topics"):
